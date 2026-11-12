@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Warehouse Robot Lab</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='4' y='4' width='24' height='24' rx='6' fill='%23f5b700' stroke='%23263238' stroke-width='3'/%3E%3Crect x='10' y='10' width='12' height='12' rx='2' fill='%23263238'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <svg class="brand-mark" viewBox="0 0 40 40" aria-hidden="true">
+      <rect x="5" y="5" width="30" height="30" rx="7" fill="var(--robot)" stroke="var(--ink)" stroke-width="3"/>
+      <rect x="12" y="12" width="16" height="16" rx="3" fill="var(--ink)"/>
+      <rect x="15" y="6" width="10" height="3" rx="1.5" fill="var(--ink)"/>
+    </svg>
+    <div>
+      <h1>Warehouse Robot Lab</h1>
+      <p>Teach a robot to pick and deliver orders with Q-learning</p>
+    </div>
+  </div>
+  <div class="top-actions">
+    <span id="status" class="status" data-state="idle"><i></i><span>Not trained yet</span></span>
+    <button id="helpBtn" class="btn ghost">How it works</button>
+  </div>
+</header>
+
+<main class="layout">
+
+  <!-- ===================== the warehouse floor ===================== -->
+  <section class="floor-card" aria-label="Warehouse floor">
+    <div class="floor-toolbar">
+      <div class="chips" role="group" aria-label="What to show on the floor">
+        <button class="chip" data-layer="heat" aria-pressed="true"><i class="sw sw-heat"></i>Learned value</button>
+        <button class="chip" data-layer="arrows" aria-pressed="true"><i class="sw sw-arrow"></i>Best move</button>
+        <button class="chip" data-layer="trail" aria-pressed="true"><i class="sw sw-trail"></i>Last route</button>
+      </div>
+      <div class="viewpick">
+        <label class="inline">Order
+          <select id="viewOrder" aria-label="Which order to show"></select>
+        </label>
+        <div class="seg" role="group" aria-label="Robot situation to show">
+          <button data-carry="0" aria-pressed="true">Going to pick-up</button>
+          <button data-carry="1" aria-pressed="false">Carrying to drop-off</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="floor-wrap" id="floorWrap">
+      <canvas id="floor" aria-label="Warehouse grid. Use the Build tab to edit it."></canvas>
+      <div id="tip" class="tip" hidden></div>
+    </div>
+    <p id="floorCaption" class="caption"></p>
+
+    <div class="legend" aria-label="Legend">
+      <span><i class="sw sw-rack"></i>Rack</span>
+      <span><i class="sw sw-pick"></i>Pick point</span>
+      <span><i class="sw sw-active"></i>Current order</span>
+      <span><i class="sw sw-drop"></i>Drop-off</span>
+      <span><i class="sw sw-robot"></i>Robot</span>
+      <span><i class="sw sw-ramp"></i>Learned value, low to high</span>
+    </div>
+  </section>
+
+  <!-- ===================== control panel ===================== -->
+  <aside class="panel">
+    <nav class="tabs" role="tablist" aria-label="Steps">
+      <button role="tab" data-tab="build" aria-selected="true"><b>1</b>Build</button>
+      <button role="tab" data-tab="train" aria-selected="false"><b>2</b>Train</button>
+      <button role="tab" data-tab="deliver" aria-selected="false"><b>3</b>Deliver</button>
+      <button role="tab" data-tab="inside" aria-selected="false" class="tab-extra">Look inside</button>
+    </nav>
+
+    <!-- 1. BUILD -->
+    <div class="tab-body" id="tab-build" role="tabpanel">
+      <p class="lead">Draw your warehouse. The robot starts without a map and learns this floor by itself.</p>
+
+      <div class="field">
+        <span class="flabel">Start from</span>
+        <div class="seg wrap" id="presetSeg"></div>
+      </div>
+
+      <div class="field">
+        <span class="flabel">Paint with</span>
+        <div class="tools" role="radiogroup" aria-label="Painting tool">
+          <button class="tool" role="radio" data-tool="rack" aria-checked="true"><i class="sw sw-rack"></i>Rack</button>
+          <button class="tool" role="radio" data-tool="pick" aria-checked="false"><i class="sw sw-pick"></i>Pick point</button>
+          <button class="tool" role="radio" data-tool="drop" aria-checked="false"><i class="sw sw-drop"></i>Drop-off</button>
+          <button class="tool" role="radio" data-tool="floor" aria-checked="false"><i class="sw sw-floor"></i>Floor</button>
+        </div>
+        <p class="help">Click or drag on the floor. Racks block the robot, orders are picked up at pick points and delivered to the drop-off.</p>
+      </div>
+
+      <div class="field sizes">
+        <div class="stepper"><span class="flabel">Rows</span>
+          <button class="btn icon" data-size="rows" data-d="-1" aria-label="Fewer rows">−</button>
+          <output id="rowsOut">10</output>
+          <button class="btn icon" data-size="rows" data-d="1" aria-label="More rows">+</button>
+        </div>
+        <div class="stepper"><span class="flabel">Columns</span>
+          <button class="btn icon" data-size="cols" data-d="-1" aria-label="Fewer columns">−</button>
+          <output id="colsOut">10</output>
+          <button class="btn icon" data-size="cols" data-d="1" aria-label="More columns">+</button>
+        </div>
+      </div>
+
+      <ul id="layoutCheck" class="checklist" aria-live="polite"></ul>
+      <p id="buildFresh" class="note" hidden>Changing the floor gives the robot a fresh brain when you next train.</p>
+      <button id="toTrain" class="btn primary wide">Continue to training</button>
+    </div>
+
+    <!-- 2. TRAIN -->
+    <div class="tab-body" id="tab-train" role="tabpanel" hidden>
+      <p class="lead">The robot practises thousands of orders. Watch the floor fill with what it learns, spreading out from the pick points and the drop-off.</p>
+
+      <div class="setting">
+        <div class="setting-head"><label for="alpha">Learning rate <em>α</em></label><output id="alphaOut"></output></div>
+        <input type="range" id="alpha" min="0.01" max="1" step="0.01" value="0.2">
+        <p class="help">How much one experience changes the robot's mind. Too high and it overreacts, too low and it learns slowly.</p>
+      </div>
+      <div class="setting">
+        <div class="setting-head"><label for="gamma">Discount <em>γ</em></label><output id="gammaOut"></output></div>
+        <input type="range" id="gamma" min="0.5" max="0.99" step="0.01" value="0.95">
+        <p class="help">How much points in the future count. Near 1, the robot plans ahead to the delivery.</p>
+      </div>
+      <div class="setting">
+        <div class="setting-head"><span>Exploration <em>ε</em></span><output id="epsOut"></output></div>
+        <div class="dual">
+          <label>Start<input type="range" id="epsStart" min="0.1" max="1" step="0.05" value="1"></label>
+          <label>End<input type="range" id="epsEnd" min="0" max="0.3" step="0.01" value="0.05"></label>
+        </div>
+        <p class="help">How often the robot tries a random move instead of its best guess. It starts curious and becomes confident.</p>
+      </div>
+      <div class="setting">
+        <div class="setting-head"><label for="episodes">Practice orders</label><output id="episodesOut"></output></div>
+        <input type="range" id="episodes" min="200" max="10000" step="100" value="3000">
+        <p class="help">One practice order is one episode: from a random start until delivery or time runs out.</p>
+      </div>
+
+      <details class="rewards">
+        <summary>Reward rules</summary>
+        <div class="reward-grid">
+          <label for="rStep">Each move</label><input type="number" id="rStep" step="1" min="-20" max="0" value="-1">
+          <label for="rBump">Hitting a rack or wall</label><input type="number" id="rBump" step="1" min="-50" max="0" value="-5">
+          <label for="rWrong">Pick or drop in the wrong place</label><input type="number" id="rWrong" step="1" min="-50" max="0" value="-10">
+          <label for="rPick">Picking the right item</label><input type="number" id="rPick" step="1" min="0" max="100" value="10">
+          <label for="rDeliver">Delivering the order</label><input type="number" id="rDeliver" step="1" min="0" max="200" value="20">
+        </div>
+        <p class="help">The robot only ever sees these points. Change them, retrain, and see how its behaviour changes.</p>
+      </details>
+
+      <div class="field">
+        <span class="flabel">Speed</span>
+        <div class="seg" id="speedSeg" role="group" aria-label="Training speed">
+          <button data-speed="watch" aria-pressed="false">Watch each try</button>
+          <button data-speed="slow" aria-pressed="false">Slow</button>
+          <button data-speed="normal" aria-pressed="true">Normal</button>
+          <button data-speed="fast" aria-pressed="false">Fast</button>
+        </div>
+      </div>
+
+      <div class="progress" aria-live="polite">
+        <div class="bar"><span id="progFill"></span></div>
+        <div id="progText" class="prog-text">0 of 3,000 practice orders</div>
+      </div>
+      <p id="trainFresh" class="note" hidden>These settings apply to a fresh brain. The next start begins from zero.</p>
+      <div class="row-buttons">
+        <button id="trainBtn" class="btn primary">Start training</button>
+        <button id="resetBtn" class="btn secondary">Reset brain</button>
+      </div>
+      <p class="help kbd-hint">Press the space bar to start or pause.</p>
+    </div>
+
+    <!-- 3. DELIVER -->
+    <div class="tab-body" id="tab-deliver" role="tabpanel" hidden>
+      <p class="lead">Give the robot a real order. Now it uses only what it learned: no random moves.</p>
+
+      <div class="field">
+        <label class="flabel" for="orderSel">Order</label>
+        <select id="orderSel"></select>
+      </div>
+      <div class="field">
+        <span class="flabel">Robot starts at</span>
+        <div class="seg" id="startSeg" role="group" aria-label="Start position">
+          <button data-start="random" aria-pressed="true">A random spot</button>
+          <button data-start="pick" aria-pressed="false">A spot I choose</button>
+        </div>
+        <p id="startHelp" class="help" hidden>Click any floor cell to place the robot.</p>
+      </div>
+      <div class="field">
+        <div class="setting-head"><label for="playSpeed">Playback speed</label></div>
+        <input type="range" id="playSpeed" min="1" max="10" step="1" value="5">
+      </div>
+      <div class="row-buttons">
+        <button id="deliverBtn" class="btn primary">Deliver order</button>
+        <button id="replayBtn" class="btn secondary" disabled>Replay</button>
+      </div>
+      <div id="deliverResult" class="result" hidden></div>
+      <ol id="deliverLog" class="log" aria-label="Moves"></ol>
+
+      <div class="divider"></div>
+      <h3>Score the robot</h3>
+      <p class="help">Runs 100 new orders and compares each route with the shortest one possible.</p>
+      <button id="testBtn" class="btn secondary">Test 100 orders</button>
+      <div id="testResult" class="result" hidden></div>
+
+      <div class="divider"></div>
+      <h3>Brain file</h3>
+      <p class="help">Save the Q-table with its warehouse and settings, and load it again later.</p>
+      <div class="row-buttons">
+        <button id="saveBtn" class="btn secondary">Save brain</button>
+        <label class="btn secondary file-btn">Load brain<input type="file" id="loadInput" accept=".json,application/json"></label>
+      </div>
+    </div>
+
+    <!-- LOOK INSIDE -->
+    <div class="tab-body" id="tab-inside" role="tabpanel" hidden>
+      <p class="lead">Slow it all down. Every step moves the robot once and shows exactly how one number in its brain changes.</p>
+      <div class="row-buttons">
+        <button id="stepBtn" class="btn primary">Take one step</button>
+        <button id="autoBtn" class="btn secondary" aria-pressed="false">Auto-step</button>
+        <button id="newOrderBtn" class="btn ghost">New order</button>
+      </div>
+      <div id="stepCard" class="stepcard">
+        <p class="empty">Press <b>Take one step</b>. If the robot is untrained, every number starts at 0 and you can watch the very first things it learns.</p>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ===================== learning progress ===================== -->
+  <section class="charts" aria-label="Learning progress">
+    <div class="stats">
+      <div class="stat"><span class="k">Practice orders</span><span class="v" id="stEpisodes">0</span></div>
+      <div class="stat"><span class="k">Random moves right now</span><span class="v" id="stEps">100%</span></div>
+      <div class="stat"><span class="k">Delivered, last 50 orders</span><span class="v" id="stSuccess">–</span></div>
+      <div class="stat"><span class="k">Moves per delivery, last 50</span><span class="v" id="stSteps">–</span></div>
+    </div>
+    <div class="chart-grid">
+      <figure class="chart">
+        <figcaption>Points per practice order</figcaption>
+        <div class="chart-box"><canvas id="rewardChart"></canvas><div class="ctip" hidden></div></div>
+        <div class="chart-legend">
+          <span><i style="--c: var(--ink-3)"></i>Each order</span>
+          <span><i style="--c: var(--rack)"></i>Average of the last 50</span>
+        </div>
+      </figure>
+      <figure class="chart">
+        <figcaption>Orders delivered, out of the last 50</figcaption>
+        <div class="chart-box"><canvas id="successChart"></canvas><div class="ctip" hidden></div></div>
+      </figure>
+    </div>
+  </section>
+</main>
+
+<!-- ===================== help ===================== -->
+<dialog id="help" aria-labelledby="helpTitle">
+  <form method="dialog" class="help-inner">
+    <h2 id="helpTitle">How the robot learns</h2>
+    <div class="help-grid">
+      <section>
+        <h3>The robot is the agent</h3>
+        <p>It looks at its situation (where it is, which order, carrying or not), picks one of six actions (up, down, left, right, pick, drop) and sees what happens.</p>
+      </section>
+      <section>
+        <h3>The warehouse is the environment</h3>
+        <p>It moves the robot, blocks it at racks, and hands out points. It never tells the robot where to go.</p>
+      </section>
+      <section>
+        <h3>Points are rewards</h3>
+        <p>Every move costs a point, bumping or a wrong pick costs more, picking and delivering pay off. Collecting the most points means delivering fast.</p>
+      </section>
+      <section>
+        <h3>The brain is a Q-table</h3>
+        <p>One number for every situation and action: the points the robot expects if it does that. After each move it nudges one number:</p>
+        <p class="formula small">new Q = old Q + α × (reward + γ × best next Q − old Q)</p>
+      </section>
+      <section>
+        <h3>Explore, then exploit</h3>
+        <p>Early on it mostly tries random moves (ε near 1) to discover the floor. Later it mostly follows its best guesses (ε near 0).</p>
+      </section>
+      <section>
+        <h3>Things to try</h3>
+        <p>Set γ to 0.5 and retrain. Make each move cost 0 points. Build a maze. Then use Look inside to see a single update in detail.</p>
+      </section>
+    </div>
+    <button class="btn primary" value="close">Got it</button>
+  </form>
+</dialog>
+
+<div id="toasts" class="toasts" aria-live="polite"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>
